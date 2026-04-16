@@ -93,7 +93,7 @@ export function collectWhatsAppStatusIssues(
             : "";
         addIssue(
           "runtime",
-          `Linked but stale${staleSuffix}${lastError ? `: ${lastError}` : "."}`,
+          `${linkedRuntimePrefix}stale${staleSuffix}${lastError ? `: ${lastError}` : "."}`,
           repair,
         );
         return;
@@ -112,7 +112,7 @@ export function collectWhatsAppStatusIssues(
               : "stopped";
         addIssue(
           "runtime",
-          `Linked but ${stateLabel}${reconnectAttempts != null ? ` (reconnectAttempts=${reconnectAttempts})` : ""}${lastError ? `: ${lastError}` : "."}`,
+          `${sessionRuntimePrefix}${stateLabel}${reconnectAttempts != null ? ` (reconnectAttempts=${reconnectAttempts})` : ""}${lastError ? `: ${lastError}` : "."}`,
           repair,
         );
         return;
@@ -136,7 +136,7 @@ export function collectWhatsAppStatusIssues(
       if (running && !connected) {
         addIssue(
           "runtime",
-          `Linked but disconnected${reconnectAttempts != null ? ` (reconnectAttempts=${reconnectAttempts})` : ""}${lastError ? `: ${lastError}` : "."}`,
+          `${linkedRuntimePrefix}disconnected${reconnectAttempts != null ? ` (reconnectAttempts=${reconnectAttempts})` : ""}${lastError ? `: ${lastError}` : "."}`,
           repair,
         );
       }
