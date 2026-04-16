@@ -188,6 +188,16 @@ export const webHandlers: GatewayRequestHandlers = {
         timeoutMs: params.timeoutMs,
         verbose: Boolean(params.verbose),
         accountId,
+      };
+      const preflightResult = await provider.gateway.loginWithQrStartPreflight?.(loginParams);
+      if (preflightResult) {
+        respond(true, preflightResult, undefined);
+        return;
+      }
+      const wasRunning = wasChannelRunning({
+        context,
+        channelId: provider.id,
+        accountId,
       });
       const stoppedAfterQrTakeover = !stoppedBeforeLogin && Boolean(result.qrDataUrl);
       if (stoppedAfterQrTakeover) {
