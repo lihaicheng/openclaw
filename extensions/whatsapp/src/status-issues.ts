@@ -66,6 +66,7 @@ export function collectWhatsAppStatusIssues(
       };
       const relink = `Run: ${formatCliCommand("openclaw channels login")} (scan QR on the gateway host).`;
       const repair = `Run: ${formatCliCommand("openclaw doctor")} (or restart the gateway). If it persists, relink via channels login and check logs.`;
+      const linkedRuntimePrefix = linked ? "Linked but " : "";
 
       if (statusState === "unstable") {
         addIssue(
@@ -112,7 +113,7 @@ export function collectWhatsAppStatusIssues(
               : "stopped";
         addIssue(
           "runtime",
-          `${sessionRuntimePrefix}${stateLabel}${reconnectAttempts != null ? ` (reconnectAttempts=${reconnectAttempts})` : ""}${lastError ? `: ${lastError}` : "."}`,
+          `${linkedRuntimePrefix}${stateLabel}${reconnectAttempts != null ? ` (reconnectAttempts=${reconnectAttempts})` : ""}${lastError ? `: ${lastError}` : "."}`,
           repair,
         );
         return;

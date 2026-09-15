@@ -116,6 +116,7 @@ function resolveWebLoginRequest<TMethod extends WebLoginGatewayMethod>(params: {
 }): {
   accountId?: string;
   provider: WebLoginProvider;
+  gateway: WebLoginGateway;
   run: NonNullable<WebLoginGateway[TMethod]>;
 } | null {
   const accountId = params.rawParams.accountId;
@@ -133,7 +134,12 @@ function resolveWebLoginRequest<TMethod extends WebLoginGatewayMethod>(params: {
     respondProviderUnsupported(params.respond, provider.id);
     return null;
   }
-  return { accountId, provider, run: run.bind(gateway) as NonNullable<WebLoginGateway[TMethod]> };
+  return {
+    accountId,
+    provider,
+    gateway,
+    run: run.bind(gateway) as NonNullable<WebLoginGateway[TMethod]>,
+  };
 }
 
 /** Checks whether the matching channel/account should be restored after login start. */
@@ -172,29 +178,19 @@ export const webHandlers: GatewayRequestHandlers = {
       if (!request) {
         return;
       }
-      const { accountId, provider, run } = request;
-      const wasRunning = wasChannelRunning({
-        context,
-        channelId: provider.id,
-        accountId,
-      });
-      const forceLogin = Boolean(params.force);
-      const stoppedBeforeLogin = forceLogin || !wasRunning;
-      if (stoppedBeforeLogin) {
-        await context.stopChannel(provider.id, accountId);
-      }
-      const result = await run({
-        force: forceLogin,
+      const { accountId, provider, gateway, run } = request;
+      const loginParams = {
+        force: Boolean(params.force),
         timeoutMs: params.timeoutMs,
         verbose: Boolean(params.verbose),
         accountId,
       };
-      const existingResult = await provider.gateway.loginWithQrStartExisting?.(loginParams);
+      const existingResult = await gateway.loginWithQrStartExisting?.(loginParams);
       if (existingResult) {
         respond(true, existingResult, undefined);
         return;
       }
-      const preflightResult = await provider.gateway.loginWithQrStartPreflight?.(loginParams);
+      const preflightResult = await gateway.loginWithQrStartPreflight?.(loginParams);
       if (preflightResult) {
         respond(true, preflightResult, undefined);
         return;
@@ -204,6 +200,12 @@ export const webHandlers: GatewayRequestHandlers = {
         channelId: provider.id,
         accountId,
       });
+      const forceLogin = loginParams.force;
+      const stoppedBeforeLogin = forceLogin || !wasRunning;
+      if (stoppedBeforeLogin) {
+        await context.stopChannel(provider.id, accountId);
+      }
+      const result = await run(loginParams);
       const stoppedAfterQrTakeover = !stoppedBeforeLogin && Boolean(result.qrDataUrl);
       if (stoppedAfterQrTakeover) {
         await context.stopChannel(provider.id, accountId);

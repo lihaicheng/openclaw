@@ -1,4 +1,9 @@
 import { createLazyRuntimeModule } from "openclaw/plugin-sdk/lazy-runtime";
+type ReadExistingWebLoginWithQrResult =
+  typeof import("./src/login-qr.js").readExistingWebLoginWithQrResult;
+type PreflightWebLoginWithQrStart = typeof import("./src/login-qr.js").preflightWebLoginWithQrStart;
+type StartWebLoginWithQrAfterPreflight =
+  typeof import("./src/login-qr.js").startWebLoginWithQrAfterPreflight;
 type StartWebLoginWithQr = typeof import("./src/login-qr.js").startWebLoginWithQr;
 type WaitForWebLogin = typeof import("./src/login-qr.js").waitForWebLogin;
 
