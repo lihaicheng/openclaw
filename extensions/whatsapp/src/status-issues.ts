@@ -74,16 +74,15 @@ export function collectWhatsAppStatusIssues(
           "Auth state is still stabilizing.",
           "Wait a moment for queued credential writes to finish, then retry the command or rerun health.",
         );
-        return;
-      }
-
-      if (healthState === "logged-out") {
+      } else if (healthState === "logged-out") {
         addIssue("auth", `Session logged out${lastError ? `: ${lastError}` : "."}`, relink);
-        return;
+      } else if (!linked) {
+        addIssue("auth", "Not linked (no WhatsApp Web session).", relink);
       }
 
-      if (!linked) {
-        addIssue("auth", "Not linked (no WhatsApp Web session).", relink);
+      // Preserve the explicit logged-out diagnosis; unstable and unlinked
+      // states can still have a separate runtime problem worth reporting.
+      if (healthState === "logged-out") {
         return;
       }
 
@@ -120,6 +119,7 @@ export function collectWhatsAppStatusIssues(
       }
 
       if (
+        linked &&
         running &&
         connected &&
         reconnectAttempts != null &&
