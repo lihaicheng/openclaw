@@ -565,10 +565,15 @@ extension OpenClawChatView {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
 
-        ForEach(self.transcriptRows) { row in
+        let rows = self.transcriptRows
+        let metadata = ChatTranscriptRow.footerMetadata(
+            in: ChatTranscriptRow.build(from: self.viewModel.messages),
+            activeRunIDs: Set(self.viewModel.liveAdvertisedRunIDs).union(self.viewModel.liveLocalRunIDs),
+            runWorking: self.viewModel.hasBlockingRunActivity || self.viewModel.streamingAssistantText != nil)
+        ForEach(rows) { row in
             switch row {
             case let .message(message):
-                self.messageRow(for: message, contextWindowTokens: contextWindowTokens)
+                self.messageRow(for: message, metadata: metadata[message.id], contextWindowTokens: contextWindowTokens)
                     .background(
                         RoundedRectangle(cornerRadius: 12)
                             .fill(OpenClawChatTheme.accent.opacity(self.searchMessageID == message.id ? 0.08 : 0)))
@@ -585,7 +590,10 @@ extension OpenClawChatView {
                     .frame(maxWidth: .infinity)
             case let .completedWork(work):
                 ChatCompletedWorkDisclosure(work: work) { message in
-                    self.messageRow(for: message, contextWindowTokens: contextWindowTokens)
+                    self.messageRow(
+                        for: message,
+                        metadata: metadata[message.id],
+                        contextWindowTokens: contextWindowTokens)
                 }
             }
         }
@@ -640,10 +648,12 @@ extension OpenClawChatView {
     @ViewBuilder
     private func messageRow(
         for msg: OpenClawChatMessage,
+        metadata: ChatMessageMetadata?,
         contextWindowTokens: Int?) -> some View
     {
         let bubble = ChatMessageBubble(
             message: msg,
+            metadata: metadata,
             sourcePreviews: self.viewModel.sourcePreviews(for: msg),
             sourceContextRevision: self.viewModel.sourcePreviewState.revision,
             sourceFaviconsEnabled: self.viewModel.sourcePreviewState.context?.automaticallyFetchFavicons == true,
@@ -1245,31 +1255,11 @@ extension OpenClawChatView {
                     details: message.details,
                     isError: message.isError))
 
-            let merged = OpenClawChatMessage(
-                id: last.id,
-                role: last.role,
-                content: content,
-                timestamp: last.timestamp,
-                transcriptMessageID: last.transcriptMessageID,
-                transcriptRunID: last.transcriptRunID,
-                isTruncated: last.isTruncated,
-                idempotencyKey: last.idempotencyKey,
-                toolCallId: last.toolCallId,
-                toolName: last.toolName,
-                usage: last.usage,
-                stopReason: last.stopReason,
-                errorMessage: last.errorMessage,
-                details: last.details,
-                isError: last.isError,
-                provenance: last.provenance,
-                historyMarker: last.historyMarker,
-                phase: last.phase,
-                turnBoundary: last.turnBoundary,
-                steerTargetRunID: last.steerTargetRunID,
-                streamFallback: last.streamFallback,
-                activity: message.activity.map { terminal in
-                    (last.activity ?? []).filter { $0.toolCallId != toolCallId } + terminal
-                } ?? last.activity)
+            var merged = last
+            merged.content = content
+            merged.activity = message.activity.map { terminal in
+                (last.activity ?? []).filter { $0.toolCallId != toolCallId } + terminal
+            } ?? last.activity
             result[result.count - 1] = merged
         }
 
