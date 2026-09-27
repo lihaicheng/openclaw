@@ -343,7 +343,7 @@ it.each([
         replacement = await codexNativeSubagentMonitorRuntime.register(registration);
       }
       if (retireReplacement) {
-        codexNativeSubagentMonitorRuntime.retireParent(client, currentParent);
+        await codexNativeSubagentMonitorRuntime.retireParent(client, currentParent);
       }
       const afterRetirement = readTask();
       await fixture.notify({
@@ -393,8 +393,8 @@ it.each([
         });
       }
     } finally {
-      codexNativeSubagentMonitorRuntime.retireParent(client, currentParent);
-      codexNativeSubagentMonitorRuntime.retireParent(client, originalParent);
+      await codexNativeSubagentMonitorRuntime.retireParent(client, currentParent);
+      await codexNativeSubagentMonitorRuntime.retireParent(client, originalParent);
       await replacement.unregister();
       fixture.close();
       host.closeHost();

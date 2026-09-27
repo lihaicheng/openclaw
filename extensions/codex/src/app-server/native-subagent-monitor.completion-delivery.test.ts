@@ -123,7 +123,7 @@ describe("CodexNativeSubagentMonitor", () => {
           );
         });
         expect(runtime.deliverAgentHarnessTaskCompletion).not.toHaveBeenCalled();
-        monitor.dispose();
+        await monitor.dispose();
       },
     );
 
@@ -241,6 +241,7 @@ describe("CodexNativeSubagentMonitor", () => {
         agentId: "main",
         runtime,
       });
+      let retirement: Promise<void> | undefined;
       try {
         await notifyChildStarted(client);
         await client.notify(completedChild());
@@ -254,11 +255,15 @@ describe("CodexNativeSubagentMonitor", () => {
           runtime.deliverAgentHarnessTaskCompletion.mock.calls[0]?.[0]
             .isSourceSessionAdmissionAllowed;
         expect(canAdmit?.()).toBe(true);
-        codexNativeSubagentMonitorRuntime.retireParent(client as never, "parent-thread");
+        retirement = codexNativeSubagentMonitorRuntime.retireParent(
+          client as never,
+          "parent-thread",
+        );
         expect(canAdmit?.()).toBe(false);
       } finally {
         delivery.resolve({ delivered: true, path: "direct" });
         await delivery.promise;
+        await retirement;
         await owner.unregister();
         client.close();
       }
@@ -369,12 +374,14 @@ describe("CodexNativeSubagentMonitor", () => {
       "retains a native receipt when task recovery finishes %s parent release",
       async (order) => {
         const client = createClient();
+        const readStarted = createDeferred<void>();
         let releaseRead!: (response: CodexThreadReadResponse) => void;
         client.setThreadReadFactory(
           "child-thread",
           () =>
             new Promise((resolve) => {
               releaseRead = resolve;
+              readStarted.resolve();
             }),
         );
         const runtime = createRuntime();
@@ -385,6 +392,7 @@ describe("CodexNativeSubagentMonitor", () => {
         const monitor = new CodexNativeSubagentMonitor(client as never, runtime);
         const owner = await registerParent(monitor, undefined, undefined, historyOwner);
         owner.bindTurn("parent-turn");
+        await readStarted.promise;
         expect(client.request).toHaveBeenCalledOnce();
         await client.notify(deliveredNativeCompletion());
         if (order === "after") {
@@ -578,12 +586,14 @@ describe("CodexNativeSubagentMonitor", () => {
         });
         const metadata = structuredClone(history);
         metadata.thread.turns = [];
+        const readStarted = createDeferred<void>();
         let releaseRead!: () => void;
         const readGate = new Promise<void>((resolve) => {
           releaseRead = resolve;
         });
         let firstFullRead = true;
         client.setThreadReadFactory("child-thread", async (params) => {
+          readStarted.resolve();
           if (params.includeTurns === false) {
             return metadata;
           }
@@ -610,6 +620,7 @@ describe("CodexNativeSubagentMonitor", () => {
         });
         owner.bindTurn("parent-turn");
         try {
+          await readStarted.promise;
           expect(client.request).toHaveBeenCalledOnce();
           const receipt = deliveredNativeCompletion();
           if (lineage === "stored" || lineage === "legacy-predecessor") {

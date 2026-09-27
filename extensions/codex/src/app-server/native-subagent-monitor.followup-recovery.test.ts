@@ -266,7 +266,7 @@ describe("CodexNativeSubagentMonitor", () => {
           unregisterPromise = owner.unregister();
         }
         if (parent === "retired" || parent === "replaced") {
-          monitor.retireParent("parent-thread");
+          await monitor.retireParent("parent-thread");
         }
         if (parent === "replaced") {
           replacement = await monitor.registerParent({
