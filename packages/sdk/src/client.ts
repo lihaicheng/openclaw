@@ -40,8 +40,6 @@ import type {
   ToolInvokeResult,
 } from "./types.js";
 
-// High-level OpenClaw SDK client. Namespaces below translate friendly SDK calls
-// into current Gateway RPC methods and normalize event streams for consumers.
 const MAX_REPLAY_RUNS = 100;
 const MAX_REPLAY_EVENTS_PER_RUN = 500;
 
@@ -75,14 +73,6 @@ function normalizeTimeoutMs(timeoutMs: number | undefined): number | undefined {
   return Math.floor(timeoutMs);
 }
 
-function timeoutSecondsFromMs(timeoutMs: number | undefined): number | undefined {
-  const normalized = normalizeTimeoutMs(timeoutMs);
-  if (normalized === undefined) {
-    return undefined;
-  }
-  return normalized === 0 ? 0 : Math.ceil(normalized / 1000);
-}
-
 function splitModelRef(model: string | undefined): { provider?: string; model?: string } {
   if (!model) {
     return {};
@@ -114,10 +104,12 @@ function assertNoUnsupportedRunOptions(params: AgentRunParams): void {
   );
 }
 
-function buildAgentParams(params: AgentRunParams): Record<string, unknown> {
+function buildAgentParams(
+  params: AgentRunParams,
+  timeoutMs: number | undefined,
+): Record<string, unknown> {
   assertNoUnsupportedRunOptions(params);
   const modelRef = splitModelRef(params.model);
-  const timeoutSeconds = timeoutSecondsFromMs(params.timeoutMs);
   return {
     message: params.input,
     ...(params.agentId ? { agentId: params.agentId } : {}),
@@ -128,14 +120,12 @@ function buildAgentParams(params: AgentRunParams): Record<string, unknown> {
     ...(params.thinking ? { thinking: params.thinking } : {}),
     ...(typeof params.deliver === "boolean" ? { deliver: params.deliver } : {}),
     ...(params.attachments ? { attachments: params.attachments } : {}),
-    ...(timeoutSeconds !== undefined ? { timeout: timeoutSeconds } : {}),
+    ...(timeoutMs !== undefined
+      ? { timeout: timeoutMs === 0 ? 0 : Math.ceil(timeoutMs / 1000) }
+      : {}),
     ...(params.label ? { label: params.label } : {}),
     idempotencyKey: params.idempotencyKey ?? randomUUID(),
   };
-}
-
-function unsupportedGatewayApi(api: string): never {
-  throw new Error(`${api} is not supported by the current OpenClaw Gateway yet`);
 }
 
 type ChatProjectionState = "delta" | "final" | "error" | "aborted";
@@ -350,17 +340,6 @@ export class OpenClaw {
     return await this.transport.request<T>(method, params, options);
   }
 
-  events(filter?: (event: OpenClawEvent) => boolean): AsyncIterable<OpenClawEvent> {
-    return this.iterateEvents(filter);
-  }
-
-  runEvents(
-    runId: string,
-    filter?: (event: OpenClawEvent) => boolean,
-  ): AsyncIterable<OpenClawEvent> {
-    return this.iterateRunEvents(runId, filter);
-  }
-
   rawEvents(filter?: (event: GatewayEvent) => boolean): AsyncIterable<GatewayEvent> {
     this.assertOpen();
     return this.transport.events(filter);
@@ -372,9 +351,7 @@ export class OpenClaw {
     }
   }
 
-  private async *iterateEvents(
-    filter?: (event: OpenClawEvent) => boolean,
-  ): AsyncIterable<OpenClawEvent> {
+  async *events(filter?: (event: OpenClawEvent) => boolean): AsyncIterable<OpenClawEvent> {
     await this.connect();
     this.assertOpen();
     for await (const event of this.normalizedEvents.stream(filter)) {
@@ -382,13 +359,13 @@ export class OpenClaw {
     }
   }
 
-  private async *iterateRunEvents(
+  async *runEvents(
     runId: string,
     filter?: (event: OpenClawEvent) => boolean,
   ): AsyncIterable<OpenClawEvent> {
     await this.connect();
     this.assertOpen();
-    const replayEvents = this.replaySnapshot(runId);
+    const replayEvents = [...(this.replayByRunId.get(runId) ?? [])];
     let hasCanonicalAssistantRunEvent = replayEvents.some(isAssistantRunEvent);
     let terminalSource: RunTerminalSource | undefined = replayEvents.some(isTerminalRunEvent)
       ? { kind: "canonical" }
@@ -471,15 +448,8 @@ export class OpenClaw {
       return this.eventPumpReady;
     }
     let markReady = () => {};
-    let ready = false;
     this.eventPumpReady = new Promise<void>((resolve) => {
-      markReady = () => {
-        if (ready) {
-          return;
-        }
-        ready = true;
-        resolve();
-      };
+      markReady = resolve;
     });
     this.eventPumpPromise = (async () => {
       let iterator: AsyncIterator<GatewayEvent> | undefined;
@@ -544,10 +514,6 @@ export class OpenClaw {
     if (events.length > MAX_REPLAY_EVENTS_PER_RUN) {
       events.splice(0, events.length - MAX_REPLAY_EVENTS_PER_RUN);
     }
-  }
-
-  private replaySnapshot(runId: string): OpenClawEvent[] {
-    return [...(this.replayByRunId.get(runId) ?? [])];
   }
 }
 
@@ -730,8 +696,7 @@ export class RunsNamespace {
 
   async create(params: RunCreateParams): Promise<Run> {
     const timeoutMs = normalizeTimeoutMs(params.timeoutMs);
-    const normalizedParams = timeoutMs !== undefined ? { ...params, timeoutMs } : params;
-    const raw = await this.client.request("agent", buildAgentParams(normalizedParams), {
+    const raw = await this.client.request("agent", buildAgentParams(params, timeoutMs), {
       expectFinal: false,
       ...(timeoutMs !== undefined ? { timeoutMs: timeoutMs === 0 ? null : timeoutMs } : {}),
     });
@@ -904,7 +869,7 @@ export class EnvironmentsNamespace extends RpcNamespace {
 
   async delete(environmentId: string): Promise<unknown> {
     void environmentId;
-    return unsupportedGatewayApi("oc.environments.delete");
+    throw new Error("oc.environments.delete is not supported by the current OpenClaw Gateway yet");
   }
 }
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
