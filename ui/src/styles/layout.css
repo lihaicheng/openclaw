@@ -4431,6 +4431,7 @@ wa-dropdown.sidebar-identity-menu::part(menu) {
 .content {
   grid-area: content;
   --content-inline-padding: 20px;
+  --content-child-spacing: 20px;
   padding: 16px var(--content-inline-padding) 32px;
   display: block;
   min-height: 0;
@@ -4461,7 +4462,7 @@ wa-dropdown.sidebar-identity-menu::part(menu) {
 }
 
 .content > * + * {
-  margin-top: 20px;
+  margin-top: var(--content-child-spacing);
 }
 
 .shell--settings .content:has(> .connection-action-block) {
@@ -4569,15 +4570,12 @@ wa-dropdown.sidebar-identity-menu::part(menu) {
 
 /* Embedded pages own their spacing and scrolling inside the frame. */
 .content:has(.plugin-tab-embed) {
+  --content-child-spacing: 0px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   padding: 0;
   gap: 0;
-}
-
-.content:has(.plugin-tab-embed) > * + * {
-  margin-top: 0;
 }
 
 .content:has(.plugin-tab-embed) > openclaw-router-outlet {

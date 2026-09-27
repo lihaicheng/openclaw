@@ -376,14 +376,9 @@
   box-shadow: none;
 }
 
-.agent-chat__composer-combobox > :is(textarea, input)::placeholder {
-  color: var(--muted);
-}
-
 /* Chromium forces native placeholders to clip while focused. A noneditable
    sibling keeps the ellipsis while the native placeholder supplies semantics. */
-.agent-chat__composer-combobox:has(> .agent-chat__composer-placeholder)
-  > :is(textarea, input)::placeholder {
+.agent-chat__composer-combobox > :is(textarea, input)::placeholder {
   color: transparent;
 }
 

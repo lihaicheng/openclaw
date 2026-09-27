@@ -133,8 +133,10 @@
   padding-inline: 8px 0;
   border: 0;
   border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--muted);
+  border-start-end-radius: var(--side-panel-tab-end-radius, var(--radius-md));
+  border-end-end-radius: var(--side-panel-tab-end-radius, var(--radius-md));
+  background: var(--side-panel-tab-background, transparent);
+  color: var(--side-panel-tab-color, var(--muted));
   font-size: var(--control-ui-text-sm);
   white-space: nowrap;
   transition:
@@ -142,19 +144,16 @@
     color 120ms ease;
 }
 
-.side-panel__header
-  .tabstrip-tab:not([active]):is(:hover, :has(+ .tabstrip-tab__close:hover))::part(base),
-.side-panel__header .tabstrip-tab[active]::part(base) {
-  border-start-start-radius: var(--radius-md);
-  border-end-start-radius: var(--radius-md);
-  border-start-end-radius: 0;
-  border-end-end-radius: 0;
+/* Resolve sibling hover on the host; combining :has() with ::part invalidates
+   styles across the app whenever the DOM changes. */
+.side-panel__header .tabstrip-tab:not([active]):is(:hover, :has(+ .tabstrip-tab__close:hover)),
+.side-panel__header .tabstrip-tab[active] {
+  --side-panel-tab-end-radius: 0;
 }
 
-.side-panel__header
-  .tabstrip-tab:not([active]):is(:hover, :has(+ .tabstrip-tab__close:hover))::part(base) {
-  background: color-mix(in srgb, var(--text) 5%, transparent);
-  color: var(--text);
+.side-panel__header .tabstrip-tab:not([active]):is(:hover, :has(+ .tabstrip-tab__close:hover)) {
+  --side-panel-tab-background: color-mix(in srgb, var(--text) 5%, transparent);
+  --side-panel-tab-color: var(--text);
 }
 
 .side-panel__header .tabstrip-tab[active]::part(base) {
