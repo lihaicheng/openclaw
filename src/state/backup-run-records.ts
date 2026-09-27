@@ -96,10 +96,8 @@ export async function recordBackupRunOutcome(params: {
   const context = captureOpenClawStateWorkerContext({ path: databasePath, env: params.env });
   const manifest = JSON.stringify({
     kind: params.kind,
-    ...(boundedText(params.target, 512) ? { target: boundedText(params.target, 512) } : {}),
-    ...(boundedText(params.error, BACKUP_RUN_ERROR_MAX_LENGTH)
-      ? { error: boundedText(params.error, BACKUP_RUN_ERROR_MAX_LENGTH) }
-      : {}),
+    target: boundedText(params.target, 512),
+    error: boundedText(params.error, BACKUP_RUN_ERROR_MAX_LENGTH),
     ...(params.pushFailed === true ? { pushFailed: true } : {}),
   });
   const row = {

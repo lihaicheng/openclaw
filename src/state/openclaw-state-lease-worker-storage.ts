@@ -1,3 +1,4 @@
+import { throwSqliteLifecycleErrors } from "../infra/sqlite-coordinator.js";
 import type { SqliteWorkerStore } from "../infra/sqlite-worker-store.js";
 import type { OpenClawStateWorkerLeaseContext } from "./openclaw-state-lease-context.js";
 import { OpenClawStateLeaseError } from "./openclaw-state-lease-error.js";
@@ -199,14 +200,7 @@ export function createOpenClawStateLeaseWorkerStorage(context: OpenClawStateWork
         } catch (error) {
           errors.push(error);
         }
-        if (errors.length === 1) {
-          throw errors[0];
-        }
-        if (errors.length > 1) {
-          throw new AggregateError(errors, "State lease release and worker close failed", {
-            cause: errors[0],
-          });
-        }
+        throwSqliteLifecycleErrors(errors, "State lease release and worker close failed");
       });
     },
   };

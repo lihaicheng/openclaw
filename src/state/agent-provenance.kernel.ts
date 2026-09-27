@@ -6,7 +6,7 @@ import {
   iterateSqliteQuerySync,
 } from "../infra/kysely-sync.js";
 import { normalizeAgentId } from "../routing/session-key.js";
-import type { AgentCreatedVia, AgentProvenance } from "./agent-provenance.types.js";
+import type { AgentProvenance } from "./agent-provenance.types.js";
 import type { DB as OpenClawStateKyselyDatabase } from "./openclaw-state-db.generated.js";
 
 type AgentProvenanceDatabase = Pick<OpenClawStateKyselyDatabase, "agent_provenance">;
@@ -17,19 +17,12 @@ function fromRow(row: {
   creator_agent_id: string | null;
   created_at_ms: number;
 }): AgentProvenance {
-  let createdVia: AgentCreatedVia;
-  switch (row.created_via) {
-    case "operator":
-    case "agent":
-    case "claw":
-      createdVia = row.created_via;
-      break;
-    default:
-      throw new Error(`Invalid agent provenance created_via: ${row.created_via}`);
+  if (row.created_via !== "operator" && row.created_via !== "agent" && row.created_via !== "claw") {
+    throw new Error(`Invalid agent provenance created_via: ${row.created_via}`);
   }
   return {
     agentId: row.agent_id,
-    createdVia,
+    createdVia: row.created_via,
     creatorAgentId: row.creator_agent_id,
     createdAtMs: row.created_at_ms,
   };

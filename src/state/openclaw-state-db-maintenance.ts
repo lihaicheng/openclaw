@@ -74,20 +74,6 @@ function repairDanglingSkillWorkshopCollectionReviewIndex(database: DatabaseSync
   });
 }
 
-function repairDanglingSkillWorkshopCollectionReviewIndexChanges(database: DatabaseSync): string[] {
-  return repairDanglingSkillWorkshopCollectionReviewIndex(database)
-    ? ["Removed dangling legacy Skill Workshop review index"]
-    : [];
-}
-
-/** Run read-only schema admission while SQLite ignores malformed catalog rows. */
-function admitStateDatabaseWithDanglingWorkshopIndex<T>(
-  database: DatabaseSync,
-  operation: () => T,
-): T {
-  return withSqliteWritableSchema(database, operation);
-}
-
 /** Admit the schema before Doctor begins its write transaction. */
 function admitStateDatabaseForSchemaRepair(
   database: DatabaseSync,
@@ -102,7 +88,7 @@ function admitStateDatabaseForSchemaRepair(
     }
   };
   if (danglingWorkshopIndex) {
-    admitStateDatabaseWithDanglingWorkshopIndex(database, admit);
+    withSqliteWritableSchema(database, admit);
   } else {
     admit();
   }
@@ -119,7 +105,7 @@ function assertStateDatabaseSchemaRepairWriteAllowed(
   const assertAllowed = () =>
     assertOpenClawStateWriteAllowed({ database, databasePath: pathname, env });
   if (danglingWorkshopIndex) {
-    admitStateDatabaseWithDanglingWorkshopIndex(database, assertAllowed);
+    withSqliteWritableSchema(database, assertAllowed);
   } else {
     assertAllowed();
   }
@@ -134,7 +120,9 @@ export function prepareStateDatabaseSchemaRepair(
   const danglingWorkshopIndex = admitStateDatabaseForSchemaRepair(database, pathname, env);
   return () => {
     assertStateDatabaseSchemaRepairWriteAllowed(database, pathname, env, danglingWorkshopIndex);
-    return repairDanglingSkillWorkshopCollectionReviewIndexChanges(database);
+    return repairDanglingSkillWorkshopCollectionReviewIndex(database)
+      ? ["Removed dangling legacy Skill Workshop review index"]
+      : [];
   };
 }
 

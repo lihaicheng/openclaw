@@ -427,14 +427,14 @@ export function applyVerifiedGitHubIdentity(params: {
   ) {
     throw new UserProfileOwnerError("merge");
   }
-  params.mutation?.before(
-    db,
+  const affectedProfileIds = [
     currentProfileId,
     targetProfileId,
     ...(aliasIdentity ? [aliasIdentity.profile_id] : []),
     ...(aliasProfileId ? [aliasProfileId] : []),
     ...(existing ? [existing.profile_id] : []),
-  );
+  ];
+  params.mutation?.before(db, ...affectedProfileIds);
   const currentIdentity =
     currentProfileId === aliasProfileId
       ? aliasGitHubIdentity
@@ -465,11 +465,8 @@ export function applyVerifiedGitHubIdentity(params: {
     existing.canonical_login !== login ||
     aliasIdentity?.profile_id !== targetProfileId;
   if (
-    currentProfileId === targetProfileId &&
-    existing?.profile_id === targetProfileId &&
-    existing.canonical_login === login &&
-    aliasIdentity?.profile_id === targetProfileId &&
-    (primaryAccountId === undefined || existing.primary_github_account_id === primaryAccountId)
+    !authorityChanged &&
+    (primaryAccountId === undefined || existing?.primary_github_account_id === primaryAccountId)
   ) {
     return { profileId: targetProfileId, changed: false };
   }
@@ -484,62 +481,34 @@ export function applyVerifiedGitHubIdentity(params: {
         .where("id", "=", targetProfileId),
     );
   }
-  executeSqliteQuerySync(
-    db,
-    kysely
-      .insertInto("user_profile_identities")
-      .values({
-        provider: GITHUB_PROVIDER,
-        subject,
-        profile_id: targetProfileId,
-        canonical_login: login,
-        created_at: now,
-      })
-      .onConflict((conflict) =>
-        conflict.columns(["provider", "subject"]).doUpdateSet({
-          profile_id: targetProfileId,
-          canonical_login: login,
-        }),
-      ),
-  );
-  if (params.alias.kind === "email") {
-    setUserProfileEmailBinding(db, params.alias.email, targetProfileId, now);
-  } else {
+  const writeIdentity = (identitySubject: string, canonicalLogin: string | null) =>
     executeSqliteQuerySync(
       db,
       kysely
         .insertInto("user_profile_identities")
         .values({
           provider: GITHUB_PROVIDER,
-          subject: params.alias.subject,
+          subject: identitySubject,
           profile_id: targetProfileId,
-          canonical_login: null,
+          canonical_login: canonicalLogin,
           created_at: now,
         })
         .onConflict((conflict) =>
           conflict.columns(["provider", "subject"]).doUpdateSet({
             profile_id: targetProfileId,
-            canonical_login: null,
+            canonical_login: canonicalLogin,
           }),
         ),
     );
+  writeIdentity(subject, login);
+  if (params.alias.kind === "email") {
+    setUserProfileEmailBinding(db, params.alias.email, targetProfileId, now);
+  } else {
+    writeIdentity(params.alias.subject, null);
   }
   if (authorityChanged) {
-    params.mutation?.authority(
-      currentProfileId,
-      targetProfileId,
-      ...(aliasIdentity ? [aliasIdentity.profile_id] : []),
-      ...(aliasProfileId ? [aliasProfileId] : []),
-      ...(existing ? [existing.profile_id] : []),
-    );
-    publishUserProfileAuthorityChange(
-      db,
-      currentProfileId,
-      targetProfileId,
-      ...(aliasIdentity ? [aliasIdentity.profile_id] : []),
-      ...(aliasProfileId ? [aliasProfileId] : []),
-      ...(existing ? [existing.profile_id] : []),
-    );
+    params.mutation?.authority(...affectedProfileIds);
+    publishUserProfileAuthorityChange(db, ...affectedProfileIds);
   }
   return { profileId: targetProfileId, changed: true };
 }

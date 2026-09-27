@@ -17,9 +17,9 @@ import {
   selectProfileDisplayEntries,
   selectResolvedUserProfile,
   selectResolvedUserProfileMetadataById,
+  toUserProfile,
   userProfilesDb,
   userProfileDisplaySelection,
-  normalizeUserProfileAvatarMime,
 } from "./user-profiles-internal.js";
 import {
   ensureUserProfilesSchema,
@@ -114,22 +114,12 @@ export function listUserProfilesSync(options: OpenClawStateDatabaseOptions = {})
       for (const { profile_id, email } of emails) {
         emailsByProfile.get(profile_id)?.push(email);
       }
-      return profiles.map((profile) =>
-        Object.assign(
-          {
-            id: profile.id,
-            displayName: profile.display_name,
-            avatarMime: normalizeUserProfileAvatarMime(profile.avatar_mime),
-            mergedInto: profile.merged_into,
-            createdAt: profile.created_at,
-            updatedAt: profile.updated_at,
-            emails: emailsByProfile.get(profile.id) ?? [],
-            githubIdentity: githubIdentities.get(profile.id) ?? null,
-            hasAvatar: profile.has_avatar === 1,
-          },
-          profile.role ? { role: profile.role } : {},
-        ),
-      );
+      return profiles.map((profile) => ({
+        ...toUserProfile(profile),
+        emails: emailsByProfile.get(profile.id) ?? [],
+        githubIdentity: githubIdentities.get(profile.id) ?? null,
+        hasAvatar: profile.has_avatar === 1,
+      }));
     },
     { databaseLabel: database.path, operationLabel: "user-profiles.list" },
   );

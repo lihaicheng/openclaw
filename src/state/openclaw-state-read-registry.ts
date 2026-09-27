@@ -28,7 +28,7 @@ export function readStateRegistryCommand(
         | "sandboxRegistry.browsers";
     }
   >,
-): OpenClawStateReadReply {
+): Extract<OpenClawStateReadReply, { ok: true; sourceAdmitted: true }> {
   const admitted = { ok: true, sourceAdmitted: true } as const;
   if (command.type === "sandboxRegistry.list") {
     return { ...admitted, type: command.type, entries: readSandboxRegistryInDatabase(db) };

@@ -91,6 +91,17 @@ export function userProfilesDb(db: DatabaseSync) {
   return getNodeSqliteKysely<UserProfilesDatabase>(db);
 }
 
+export function selectUserProfileEmails(db: DatabaseSync, profileId: string): string[] {
+  return executeSqliteQuerySync(
+    db,
+    userProfilesDb(db)
+      .selectFrom("user_profile_emails")
+      .select("email")
+      .where("profile_id", "=", profileId)
+      .orderBy("email", "asc"),
+  ).rows.map(({ email }) => email);
+}
+
 /** Keep each exact binding and its profile's email projection in the same committed update. */
 export function applyUserProfileEmailBinding(
   bindings: UserProfileEmailBindingIndex,
@@ -327,17 +338,7 @@ export function inspectProfileAvatarInDatabase(
       profile: profile && toUserProfile(profile),
       hasAvatar: profile?.has_avatar === 1,
       avatar,
-      emails:
-        profile && !avatar
-          ? executeSqliteQuerySync(
-              db,
-              userProfilesDb(db)
-                .selectFrom("user_profile_emails")
-                .select("email")
-                .where("profile_id", "=", profile.id)
-                .orderBy("email", "asc"),
-            ).rows.map(({ email }) => email)
-          : [],
+      emails: profile && !avatar ? selectUserProfileEmails(db, profile.id) : [],
     };
   });
 }

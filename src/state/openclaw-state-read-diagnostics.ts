@@ -36,7 +36,7 @@ export function isStateDiagnosticCommand(
 export function readStateDiagnosticCommand(
   db: DatabaseSync,
   command: StateDiagnosticCommand,
-): OpenClawStateReadReply {
+): Extract<OpenClawStateReadReply, { ok: true; sourceAdmitted: true }> {
   const admitted = { ok: true, sourceAdmitted: true } as const;
   if (command.type === "capture.readOnlyEvents") {
     return {

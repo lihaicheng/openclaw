@@ -711,20 +711,8 @@ function assertNoExistingAgentDatabaseLeases(
 ): void {
   withExistingAgentLeaseWrite(maintenance, options, (db) => {
     const query = getNodeSqliteKysely<AgentDatabaseLeaseDatabase>(db);
-    const rows = executeSqliteQuerySync(
-      db,
-      query
-        .selectFrom("agent_database_leases")
-        .select(["agent_id", "lease_id", "owner_pid", "owner_start_time", "path"]),
-    ).rows;
-    for (const row of rows) {
-      const currentStart = getFileLockProcessStartTime(row.owner_pid);
-      if (
-        isPidDefinitelyDead(row.owner_pid) ||
-        (row.owner_start_time !== null &&
-          currentStart !== null &&
-          row.owner_start_time !== currentStart)
-      ) {
+    for (const row of readAgentDatabaseLeases(db)) {
+      if (isAgentDatabaseLeaseStale(row)) {
         clearAgentDatabaseLeaseVerifications(db, row.path, options.env);
         executeSqliteQuerySync(
           db,

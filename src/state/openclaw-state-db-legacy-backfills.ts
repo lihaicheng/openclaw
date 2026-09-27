@@ -538,10 +538,6 @@ export function backfillCronJobsFromJobJson(db: DatabaseSync): void {
   }
 }
 
-function metadataStringField(record: Record<string, unknown>, key: string): string | null {
-  return textField(record, key);
-}
-
 export function backfillDeliveryQueueEntriesFromEntryJson(db: DatabaseSync): void {
   if (
     !tableExists(db, "delivery_queue_entries") ||
@@ -596,22 +592,21 @@ export function backfillDeliveryQueueEntriesFromEntryJson(db: DatabaseSync): voi
     const route = recordField(entry, "route");
     const deliveryContext = recordField(entry, "deliveryContext");
     update.run(
-      metadataStringField(entry, "kind"),
-      metadataStringField(entry, "sessionKey") ??
-        (session ? metadataStringField(session, "key") : null),
-      metadataStringField(entry, "channel") ??
-        (route ? metadataStringField(route, "channel") : null) ??
-        (deliveryContext ? metadataStringField(deliveryContext, "channel") : null),
-      metadataStringField(entry, "to") ??
-        (route ? metadataStringField(route, "to") : null) ??
-        (deliveryContext ? metadataStringField(deliveryContext, "to") : null),
-      metadataStringField(entry, "accountId") ??
-        (route ? metadataStringField(route, "accountId") : null) ??
-        (deliveryContext ? metadataStringField(deliveryContext, "accountId") : null),
+      textField(entry, "kind"),
+      textField(entry, "sessionKey") ?? (session ? textField(session, "key") : null),
+      textField(entry, "channel") ??
+        (route ? textField(route, "channel") : null) ??
+        (deliveryContext ? textField(deliveryContext, "channel") : null),
+      textField(entry, "to") ??
+        (route ? textField(route, "to") : null) ??
+        (deliveryContext ? textField(deliveryContext, "to") : null),
+      textField(entry, "accountId") ??
+        (route ? textField(route, "accountId") : null) ??
+        (deliveryContext ? textField(deliveryContext, "accountId") : null),
       asSafeIntegerInRange(entry.retryCount, { min: 0 }) ?? 0,
       asSafeIntegerInRange(entry.lastAttemptAt, { min: 0 }) ?? null,
-      metadataStringField(entry, "lastError"),
-      metadataStringField(entry, "recoveryState"),
+      textField(entry, "lastError"),
+      textField(entry, "recoveryState"),
       asSafeIntegerInRange(entry.platformSendStartedAt, { min: 0 }) ?? null,
       row.queue_name,
       row.id,
