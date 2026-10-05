@@ -1,20 +1,20 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { proto } from "@whiskeysockets/baileys";
 import {
 	DisconnectReason,
 	fetchLatestBaileysVersion,
 	makeCacheableSignalKeyStore,
 	makeWASocket,
 	useMultiFileAuthState,
-} from "baileys";
-import type { proto } from "baileys";
+} from "@whiskeysockets/baileys";
 import pino from "pino";
 import qrcode from "qrcode-terminal";
 import { danger, info, logVerbose, success } from "./globals.js";
 import { ensureDir, jidToE164, toWhatsappJid } from "./utils.js";
 
-const WA_WEB_AUTH_DIR = path.join(os.homedir(), ".warelay", "waweb");
+const WA_WEB_AUTH_DIR = path.join(os.homedir(), ".warelay", "credentials");
 
 export async function createWaSocket(printQr: boolean, verbose: boolean) {
 	await ensureDir(WA_WEB_AUTH_DIR);
@@ -37,7 +37,7 @@ export async function createWaSocket(printQr: boolean, verbose: boolean) {
 	sock.ev.on("creds.update", saveCreds);
 	sock.ev.on(
 		"connection.update",
-		(update: Partial<import("baileys").ConnectionState>) => {
+		(update: Partial<import("@whiskeysockets/baileys").ConnectionState>) => {
 			const { connection, lastDisconnect, qr } = update;
 			if (qr && printQr) {
 				console.log("Scan this QR in WhatsApp (Linked Devices):");
@@ -60,7 +60,9 @@ export async function createWaSocket(printQr: boolean, verbose: boolean) {
 	return sock;
 }
 
-export async function waitForWaConnection(sock: ReturnType<typeof makeWASocket>) {
+export async function waitForWaConnection(
+	sock: ReturnType<typeof makeWASocket>,
+) {
 	return new Promise<void>((resolve, reject) => {
 		type OffCapable = {
 			off?: (event: string, listener: (...args: unknown[]) => void) => void;
@@ -68,7 +70,9 @@ export async function waitForWaConnection(sock: ReturnType<typeof makeWASocket>)
 		const evWithOff = sock.ev as unknown as OffCapable;
 
 		const handler = (...args: unknown[]) => {
-			const update = (args[0] ?? {}) as Partial<import("baileys").ConnectionState>;
+			const update = (args[0] ?? {}) as Partial<
+				import("baileys").ConnectionState
+			>;
 			if (update.connection === "open") {
 				evWithOff.off?.("connection.update", handler);
 				resolve();
@@ -99,7 +103,9 @@ export async function sendMessageWeb(
 		}
 		const result = await sock.sendMessage(jid, { text: body });
 		const messageId = result?.key?.id ?? "unknown";
-		console.log(success(`✅ Sent via web session. Message ID: ${messageId} -> ${jid}`));
+		console.log(
+			success(`✅ Sent via web session. Message ID: ${messageId} -> ${jid}`),
+		);
 	} finally {
 		try {
 			sock.ws?.close();
@@ -126,10 +132,26 @@ export async function loginWeb(
 		if (code === 515) {
 			console.log(
 				info(
-					"WhatsApp asked for a restart after pairing (code 515); creds are saved. You can now send with provider=web.",
+					"WhatsApp asked for a restart after pairing (code 515); creds are saved. Restarting connection once…",
 				),
 			);
-			return;
+			try {
+				sock.ws?.close();
+			} catch {
+				// ignore
+			}
+			const retry = await createWaSocket(false, verbose);
+			try {
+				await waitForConnection(retry);
+				console.log(
+					success(
+						"✅ Linked after restart; web session ready. You can now send with provider=web.",
+					),
+				);
+				return;
+			} finally {
+				setTimeout(() => retry.ws?.close(), 500);
+			}
 		}
 		if (code === DisconnectReason.loggedOut) {
 			await fs.rm(WA_WEB_AUTH_DIR, { recursive: true, force: true });
@@ -159,6 +181,13 @@ export async function loginWeb(
 }
 
 export { WA_WEB_AUTH_DIR };
+
+export function webAuthExists() {
+	return fs
+		.access(WA_WEB_AUTH_DIR)
+		.then(() => true)
+		.catch(() => false);
+}
 
 export type WebInboundMessage = {
 	id?: string;
@@ -224,7 +253,9 @@ export async function monitorWebInbox(options: {
 					reply,
 				});
 			} catch (err) {
-				console.error(danger(`Failed handling inbound web message: ${String(err)}`));
+				console.error(
+					danger(`Failed handling inbound web message: ${String(err)}`),
+				);
 			}
 		}
 	});
@@ -247,7 +278,8 @@ function extractText(message: proto.IMessage | undefined): string | undefined {
 	}
 	const extended = message.extendedTextMessage?.text;
 	if (extended?.trim()) return extended.trim();
-	const caption = message.imageMessage?.caption ?? message.videoMessage?.caption;
+	const caption =
+		message.imageMessage?.caption ?? message.videoMessage?.caption;
 	if (caption?.trim()) return caption.trim();
 	return undefined;
 }
@@ -264,6 +296,7 @@ function formatError(err: unknown): string {
 	if (typeof err === "string") return err;
 	const status = getStatusCode(err);
 	const code = (err as { code?: unknown })?.code;
-	if (status || code) return `status=${status ?? "unknown"} code=${code ?? "unknown"}`;
+	if (status || code)
+		return `status=${status ?? "unknown"} code=${code ?? "unknown"}`;
 	return String(err);
 }
