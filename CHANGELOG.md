@@ -1,17 +1,37 @@
 # Changelog
 
-## 1.2.0 — Unreleased
+## 1.2.3 — Unreleased
 
 ### Changes
-- **Fixed crash on WebSocket errors:** Wrapped Baileys `connection.update` event listeners in try-catch to prevent unhandled exceptions from killing the relay process. Added WebSocket-level error handlers and global `unhandledRejection`/`uncaughtException` handlers so the relay logs errors and exits gracefully instead of silently crashing.
-- Web relay now supports configurable command heartbeats (`inbound.reply.heartbeatMinutes`, default 10m) that ping Claude with a `HEARTBEAT_OK` sentinel; outbound messages are skipped when the token is returned, and normal/verbose logs record each heartbeat tick.
-- New `warelay heartbeat` CLI triggers a one-off heartbeat (web provider, auto-detects logged-in session; optional `--to` override). Relay gains `--heartbeat-now` to fire an immediate heartbeat on startup.
-- Added `warelay relay:heartbeat` (no tmux) and `warelay relay:heartbeat:tmux` helpers to start relay with an immediate startup heartbeat.
-- Relay now prints the active file log path and level on startup so you can tail logs without attaching.
-- Heartbeat CLI accepts `--session-id` to force resuming a specific Claude session; fallback heartbeats skip instead of creating a new session when no stored session exists.
-- Heartbeat session handling now supports `inbound.reply.session.heartbeatIdleMinutes` and does not refresh `updatedAt` on skipped heartbeats, so sessions still expire on idle.
-- Web inbound now resolves WhatsApp Linked IDs (`@lid`) using Baileys’ reverse mapping files, so new-format senders are no longer dropped.
-- `allowFrom: ["*"]` is honored for auto-replies; manual heartbeats require `--to` or `--all` when multiple sessions exist or the allowlist is wildcard-only.
+- **Same-phone mode (self-messaging):** warelay now supports running on the same phone number you message from. This enables setups where you chat with yourself to control an AI assistant. Same-phone mode (`from === to`) is always allowed, even without configuring `allowFrom`. Echo detection prevents infinite loops by tracking recently sent message text and skipping auto-replies when incoming messages match.
+- **Echo detection:** The `fromMe` filter in `inbound.ts` is deliberately removed for same-phone setups; instead, text-based echo detection in `auto-reply.ts` tracks sent messages in a bounded Set (max 100 entries) and skips processing when a match is found.
+- **Same-phone detection logging:** Verbose mode now logs `📱 Same-phone mode detected` when `from === to`.
+- **Configurable same-phone marker:** New `inbound.samePhoneMarker` config option to customize the prefix added to messages in same-phone mode (default: `[same-phone]`). Set it to something cute like `[🦞 same-phone]` to help distinguish bot replies.
+
+## 1.2.2 — 2025-11-28
+
+### Changes
+- **Manual heartbeat sends:** `warelay heartbeat` accepts `--message/--body` with `--provider web|twilio` to push real outbound messages through the same plumbing; `--dry-run` previews payloads without sending.
+
+## 1.2.1 — 2025-11-28
+
+### Changes
+- **Media MIME-first handling:** Media loading now sniffs magic bytes/header before trusting extensions for both providers; local files with the wrong suffix still get correct MIME and image recompression.
+- **Hosted media extensions:** Saved/hosted media (web inbound, webhook hosting, Twilio hosting) now writes files with an extension derived from detected MIME (e.g., `.jpg`, `.png`, `.mp4`), so downstream CLI sends carry the right Content-Type. Added tests covering inbound Baileys downloads and buffer saves.
+
+### Planned / in progress
+- **Heartbeat targeting quality:** Allow `warelay heartbeat --provider web --all` to fall back to `inbound.allowFrom` when no sessions exist, and surface a clear error when neither sessions nor allow-list entries are present. Add verbose log lines that state exactly which recipients were chosen and why.
+- **Heartbeat delivery preview (Claude path):** Add a dry-run mode that resolves the heartbeat reply (text/media) and prints it without sending, to help test Claude prompt changes safely.
+- **Simulated inbound hook (debug):** Optional local-only endpoint to inject synthetic inbound messages into the web relay loop, sharing the same command queue and reply path. Useful for testing auto-replies and heartbeats without WhatsApp.
+
+## 1.2.0 — 2025-11-27
+
+### Changes
+- **Heartbeat UX:** Default heartbeat interval is now 10 minutes for command mode. Heartbeat prompt is `HEARTBEAT ultrathink`; replies of exactly `HEARTBEAT_OK` suppress outbound messages but still log. Fallback heartbeats no longer start fresh sessions when none exist, and skipped heartbeats do not refresh session `updatedAt` (so idle expiry still works). Session-level `heartbeatIdleMinutes` is supported.
+- **Heartbeat tooling:** `warelay heartbeat` accepts `--session-id` to force resume a specific Claude session. Added `--heartbeat-now` to relay startup, plus helper scripts `warelay relay:heartbeat` and `warelay relay:heartbeat:tmux` to fire a heartbeat immediately when the relay launches.
+- **Prompt structure for Claude:** Introduced one-time `sessionIntro` (system prompt) with per-message `bodyPrefix` of `ultrathink`, so the full prompt is sent only on the first turn; later turns only prepend `ultrathink`. Session idle extended to 7 days (configurable).
+- **Robustness:** Added WebSocket error guards for Baileys sessions; global `unhandledRejection`/`uncaughtException` handlers log and exit cleanly. Web inbound now resolves WhatsApp Linked IDs (`@lid`) using Baileys reverse mapping. Media hosting during Twilio webhooks uses the shared host module and is covered by tests.
+- **Docs:** README now highlights the Clawd setup with links, and `docs/claude-config.md` contains the live personal config (home folder, prompts, heartbeat behavior, and session settings).
 
 ## 1.1.0 — 2025-11-26
 

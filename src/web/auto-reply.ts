@@ -81,8 +81,17 @@ export async function runWebHeartbeatOnce(opts: {
   runtime?: RuntimeEnv;
   sender?: typeof sendMessageWeb;
   sessionId?: string;
+  overrideBody?: string;
+  dryRun?: boolean;
 }) {
-  const { cfg: cfgOverride, to, verbose = false, sessionId } = opts;
+  const {
+    cfg: cfgOverride,
+    to,
+    verbose = false,
+    sessionId,
+    overrideBody,
+    dryRun = false,
+  } = opts;
   const _runtime = opts.runtime ?? defaultRuntime;
   const replyResolver = opts.replyResolver ?? getReplyFromConfig;
   const sender = opts.sender ?? sendMessageWeb;
@@ -118,7 +127,38 @@ export async function runWebHeartbeatOnce(opts: {
     );
   }
 
+  if (overrideBody && overrideBody.trim().length === 0) {
+    throw new Error("Override body must be non-empty when provided.");
+  }
+
   try {
+    if (overrideBody) {
+      if (dryRun) {
+        console.log(
+          success(
+            `[dry-run] web send -> ${to}: ${overrideBody.trim()} (manual message)`,
+          ),
+        );
+        return;
+      }
+      const sendResult = await sender(to, overrideBody, { verbose });
+      heartbeatLogger.info(
+        {
+          to,
+          messageId: sendResult.messageId,
+          chars: overrideBody.length,
+          reason: "manual-message",
+        },
+        "manual heartbeat message sent",
+      );
+      console.log(
+        success(
+          `sent manual message to ${to} (web), id ${sendResult.messageId}`,
+        ),
+      );
+      return;
+    }
+
     const replyResult = await replyResolver(
       {
         Body: HEARTBEAT_PROMPT,
@@ -177,6 +217,17 @@ export async function runWebHeartbeatOnce(opts: {
     }
 
     const finalText = stripped.text || replyResult.text || "";
+    if (dryRun) {
+      heartbeatLogger.info(
+        { to, reason: "dry-run", chars: finalText.length },
+        "heartbeat dry-run",
+      );
+      console.log(
+        success(`[dry-run] heartbeat -> ${to}: ${finalText.slice(0, 200)}`),
+      );
+      return;
+    }
+
     const sendResult = await sender(to, finalText, { verbose });
     heartbeatLogger.info(
       { to, messageId: sendResult.messageId, chars: finalText.length },
@@ -450,6 +501,10 @@ export async function monitorWebProvider(
 
   let reconnectAttempts = 0;
 
+  // Track recently sent messages to prevent echo loops
+  const recentlySent = new Set<string>();
+  const MAX_RECENT_MESSAGES = 100;
+
   while (true) {
     if (stopRequested()) break;
 
@@ -485,11 +540,59 @@ export async function monitorWebProvider(
 
         console.log(`\n[${ts}] ${msg.from} -> ${msg.to}: ${msg.body}`);
 
+        // Detect same-phone mode (self-messaging)
+        const isSamePhoneMode = msg.from === msg.to;
+        if (isSamePhoneMode) {
+          logVerbose(`📱 Same-phone mode detected (from === to: ${msg.from})`);
+        }
+
+        // Skip if this is a message we just sent (echo detection)
+        if (recentlySent.has(msg.body)) {
+          console.log(`⏭️  Skipping echo: detected recently sent message`);
+          logVerbose(
+            `Skipping auto-reply: detected echo (message matches recently sent text)`,
+          );
+          recentlySent.delete(msg.body); // Remove from set to allow future identical messages
+          return;
+        }
+
+        logVerbose(
+          `Echo check: message not in recent set (size: ${recentlySent.size})`,
+        );
+
         lastInboundMsg = msg;
+
+        // Build timestamp prefix (default: enabled with UTC)
+        // Can be: true (UTC), false (disabled), or "America/New_York" (custom timezone)
+        let timestampStr = "";
+        const tsCfg = cfg.inbound?.timestampPrefix;
+        const tsEnabled = tsCfg !== false; // default true
+        if (tsEnabled) {
+          const tz = typeof tsCfg === "string" ? tsCfg : "UTC";
+          const now = new Date();
+          try {
+            // Format: "Nov 29 06:30" - compact but informative
+            timestampStr = `[${now.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: tz })} ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz })}] `;
+          } catch {
+            // Fallback to UTC if timezone invalid
+            timestampStr = `[${now.toISOString().slice(5, 16).replace("T", " ")}] `;
+          }
+        }
+
+        // Build message prefix: explicit config > default based on allowFrom
+        // If allowFrom is configured, user likely has a specific setup - no default prefix
+        // If no allowFrom, add "[warelay]" so AI knows it's coming through warelay
+        let messagePrefix = cfg.inbound?.messagePrefix;
+        if (messagePrefix === undefined) {
+          const hasAllowFrom = (cfg.inbound?.allowFrom?.length ?? 0) > 0;
+          messagePrefix = hasAllowFrom ? "" : "[warelay]";
+        }
+        const prefixStr = messagePrefix ? `${messagePrefix} ` : "";
+        const bodyForCommand = `${timestampStr}${prefixStr}${msg.body}`;
 
         const replyResult = await (replyResolver ?? getReplyFromConfig)(
           {
-            Body: msg.body,
+            Body: bodyForCommand,
             From: msg.from,
             To: msg.to,
             MessageSid: msg.id,
@@ -512,6 +615,15 @@ export async function monitorWebProvider(
           );
           return;
         }
+        // Apply response prefix if configured (skip for HEARTBEAT_OK to preserve exact match)
+        const responsePrefix = cfg.inbound?.responsePrefix;
+        if (responsePrefix && replyResult.text && replyResult.text.trim() !== HEARTBEAT_TOKEN) {
+          // Only add prefix if not already present
+          if (!replyResult.text.startsWith(responsePrefix)) {
+            replyResult.text = `${responsePrefix} ${replyResult.text}`;
+          }
+        }
+
         try {
           await deliverWebReply({
             replyResult,
@@ -521,6 +633,20 @@ export async function monitorWebProvider(
             runtime,
             connectionId,
           });
+
+          // Track sent message to prevent echo loops
+          if (replyResult.text) {
+            recentlySent.add(replyResult.text);
+            logVerbose(
+              `Added to echo detection set (size now: ${recentlySent.size}): ${replyResult.text.substring(0, 50)}...`,
+            );
+            // Keep set bounded - remove oldest if too large
+            if (recentlySent.size > MAX_RECENT_MESSAGES) {
+              const firstKey = recentlySent.values().next().value;
+              if (firstKey) recentlySent.delete(firstKey);
+            }
+          }
+
           if (isVerbose()) {
             console.log(
               success(

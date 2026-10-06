@@ -61,6 +61,8 @@ The second phone just needs to stay on and connected to the internet occasionall
 
 ## Meet Clawd 👋
 
+![Clawd in action on WhatsApp](whatsapp-clawd.jpg)
+
 Clawd is @steipete's personal AI assistant built on warelay. Here's what makes it special:
 
 - **Always available** via WhatsApp - no app switching, works on any device
@@ -159,14 +161,20 @@ Claude is instructed to reply with exactly `HEARTBEAT_OK` if nothing needs atten
 
 ### What Can Heartbeats Do?
 
-Clawd uses heartbeats to:
-- 🔋 **Monitor battery** - warns when laptop is low
-- ⏰ **Wake-up alarms** - checks the time and triggers alarms (voice + music!)
-- 📅 **Calendar reminders** - surfaces upcoming events
-- 🌤️ **Contextual updates** - weather, travel info, whatever's relevant
-- 💡 **Surprise check-ins** - occasionally just says hi with something fun
+Clawd uses heartbeats to do **real work**, not just check in:
 
-The key insight: heartbeats let your AI be **proactive**, not just reactive.
+- 🔋 **Monitor battery** - `pmset -g batt` - warns <30%, critical <15%
+- 📅 **Calendar** - checks upcoming meetings in next 2 hours
+- 📧 **Email** - scans inbox for urgent/important unread messages
+- 🐦 **Twitter** - checks @mentions and replies worth seeing (via browser-tools)
+- 📺 **TV Shows** - reminds about new episodes of shows you're watching
+- 🏰 **Server health** - SSH to verify backup servers are running
+- ✈️ **Flights** - reminds about upcoming travel
+- 🧹 **Home tidying** - occasionally cleans temp files, updates memories
+- ⏰ **Wake-up alarms** - triggers voice + music alarms at scheduled times
+- 💡 **Surprise** - occasionally shares something fun or interesting
+
+The key insight: heartbeats let your AI be **proactive**, not just reactive. Configure what matters to you!
 
 ### Heartbeat Config
 
@@ -294,6 +302,7 @@ MCP (Model Context Protocol) servers supercharge your assistant by giving Claude
 | **Chrome DevTools** | Control browser, take screenshots, debug | `npx chrome-devtools-mcp@latest` |
 | **iTerm** | Run commands in visible terminal window | [iterm-mcp](https://github.com/pashpashpash/iterm-mcp) |
 | **Firecrawl** | Scrape and parse web pages | Via API key |
+| **gowa** | Read/send WhatsApp messages directly | [go-whatsapp-web-multidevice](https://github.com/aldinokemal/go-whatsapp-web-multidevice) |
 
 ### Recommended CLI Tools
 
@@ -320,6 +329,7 @@ These make your AI much more capable:
 | Tool | What It Does | Install |
 |------|--------------|---------|
 | **[spotify-player](https://github.com/aome510/spotify-player)** | Control Spotify from CLI - play, pause, search, queue | `brew install spotify-player` |
+| **[browser-tools](https://github.com/steipete/agent-scripts)** | Chrome DevTools CLI - navigate, screenshot, eval JS, extract DOM | Clone repo |
 | **say** | macOS text-to-speech | Built-in |
 | **afplay** | Play audio files | Built-in |
 | **pmset** | Battery status monitoring | Built-in |
@@ -392,6 +402,83 @@ mcporter handles OAuth flows for services like Linear and Notion, and keeps your
 
 The combination of warelay (WhatsApp) + MCPs (services) + Claude Code (execution) creates a surprisingly capable personal assistant.
 
+### browser-tools for Web Scraping
+
+[browser-tools](https://github.com/steipete/agent-scripts) is a lightweight Chrome DevTools CLI that doesn't require MCP (saves ~17k tokens!). Great for reading tweets, scraping pages, or automating browser tasks:
+
+```bash
+# Start Chrome with your profile (logged into sites)
+~/Projects/agent-scripts/bin/browser-tools start --profile
+
+# Navigate and extract tweet content
+browser-tools nav "https://x.com/steipete/status/123"
+browser-tools eval 'Array.from(document.querySelectorAll("[data-testid=\"tweetText\"]")).map(el => el.innerText).join("\n")'
+
+# Kill ONLY the devtools Chrome (your regular Chrome stays open!)
+browser-tools kill --all --force
+```
+
+### Twitter Automation with Peekaboo + AppleScript
+
+Clawd can reply to tweets autonomously using a combination of Peekaboo (for screenshots and typing) and AppleScript (for JavaScript injection). Here's the pattern:
+
+```bash
+# Navigate to a tweet
+osascript -e 'tell application "Google Chrome" to set URL of active tab of front window to "https://x.com/user/status/123"'
+
+# Screenshot to see current state
+peekaboo image --mode screen --path /tmp/twitter.png
+
+# Scroll the page
+osascript -e 'tell application "Google Chrome" to execute front window'\''s active tab javascript "window.scrollBy(0, 500)"'
+
+# Focus the reply input (Twitter-specific selector)
+osascript -e 'tell application "Google Chrome" to execute front window'\''s active tab javascript "
+const replyInput = document.querySelector(\"[data-testid=\\\"tweetTextarea_0\\\"]\");
+if (replyInput) { replyInput.focus(); replyInput.click(); }
+"'
+
+# Type the reply with Peekaboo
+peekaboo type "Your reply here 🦞" --app "Google Chrome"
+
+# Click Reply button (JS injection more reliable than Peekaboo clicks on Twitter)
+osascript -e 'tell application "Google Chrome" to execute front window'\''s active tab javascript "
+const buttons = document.querySelectorAll(\"[role=\\\"button\\\"]\");
+buttons.forEach(b => { if (b.innerText === \"Reply\") b.click(); });
+"'
+
+# Find tweet URLs from the page
+osascript -e 'tell application "Google Chrome" to execute front window'\''s active tab javascript "
+const tweet = document.querySelector(\"article\");
+tweet?.querySelector(\"time\")?.parentElement?.href;
+"'
+```
+
+**Pro tip:** JavaScript injection via AppleScript is more reliable than Peekaboo clicks for Twitter's dynamic UI. Use Peekaboo for typing and screenshots, AppleScript for navigation and button clicks.
+
+### Music Recognition with audd.io
+
+Identify songs from audio clips (voice messages, recordings):
+
+```bash
+curl -s "https://api.audd.io/" \
+  -F "api_token=test" \
+  -F "file=@/path/to/audio.ogg" \
+  -F "return=spotify"
+```
+
+Returns song title, artist, album, and Spotify link. Works great for identifying songs playing in the background!
+
 ---
 
-*Built by [@steipete](https://twitter.com/steipete). PRs welcome!*
+## See It In Action
+
+Check out these tweets showing warelay + Clawd in the wild:
+
+- [Clawd with full system access via WhatsApp](https://x.com/steipete/status/1993342394184745270) - "I'll be nice to Clawd"
+- [Voice support - talk with Clawd on the go](https://x.com/steipete/status/1993455673229840588) - and it talks back!
+- [Wake-up alarm demo](https://x.com/steipete/status/1994089740367253572) - "Took me 2 days to glue things together. Didn't even need 150 Million in funding."
+
+---
+
+*Built by [@steipete](https://twitter.com/steipete) and Clawd (they/them) — yes, Clawd helped write their own docs. PRs welcome!*
