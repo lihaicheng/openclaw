@@ -1,4 +1,7 @@
-import type { CliDeps, RuntimeEnv } from "../index.js";
+import type { CliDeps } from "../cli/deps.js";
+import { retryAsync } from "../infra/retry.js";
+import type { RuntimeEnv } from "../runtime.js";
+import { upCommand } from "./up.js";
 
 export async function webhookCommand(
 	opts: {
@@ -7,6 +10,8 @@ export async function webhookCommand(
 		reply?: string;
 		verbose?: boolean;
 		yes?: boolean;
+		ingress?: "tailscale" | "none";
+		dryRun?: boolean;
 	},
 	deps: CliDeps,
 	runtime: RuntimeEnv,
@@ -15,13 +20,44 @@ export async function webhookCommand(
 	if (Number.isNaN(port) || port <= 0 || port >= 65536) {
 		throw new Error("Port must be between 1 and 65535");
 	}
+
+	const ingress = opts.ingress ?? "tailscale";
+
+	// Tailscale ingress: reuse the `up` flow (Funnel + Twilio webhook update).
+	if (ingress === "tailscale") {
+		const result = await upCommand(
+			{
+				port: opts.port,
+				path: opts.path,
+				verbose: opts.verbose,
+				yes: opts.yes,
+				dryRun: opts.dryRun,
+			},
+			deps,
+			runtime,
+		);
+		return result.server;
+	}
+
+	// Local-only webhook (no ingress / no Twilio update).
 	await deps.ensurePortAvailable(port);
-	const server = await deps.startWebhook(
-		port,
-		opts.path,
-		opts.reply,
-		Boolean(opts.verbose),
-		runtime,
+	if (opts.reply === "dry-run" || opts.dryRun) {
+		runtime.log(
+			`[dry-run] would start webhook on port ${port} path ${opts.path}`,
+		);
+		return undefined;
+	}
+	const server = await retryAsync(
+		() =>
+			deps.startWebhook(
+				port,
+				opts.path,
+				opts.reply,
+				Boolean(opts.verbose),
+				runtime,
+			),
+		3,
+		300,
 	);
 	return server;
 }
