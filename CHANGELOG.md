@@ -1,8 +1,35 @@
 # Changelog
 
-## [Unreleased] 0.1.4
+## 1.2.0 — Unreleased
 
-### Pending
+### Changes
+- **Fixed crash on WebSocket errors:** Wrapped Baileys `connection.update` event listeners in try-catch to prevent unhandled exceptions from killing the relay process. Added WebSocket-level error handlers and global `unhandledRejection`/`uncaughtException` handlers so the relay logs errors and exits gracefully instead of silently crashing.
+- Web relay now supports configurable command heartbeats (`inbound.reply.heartbeatMinutes`, default 10m) that ping Claude with a `HEARTBEAT_OK` sentinel; outbound messages are skipped when the token is returned, and normal/verbose logs record each heartbeat tick.
+- New `warelay heartbeat` CLI triggers a one-off heartbeat (web provider, auto-detects logged-in session; optional `--to` override). Relay gains `--heartbeat-now` to fire an immediate heartbeat on startup.
+- Added `warelay relay:heartbeat` (no tmux) and `warelay relay:heartbeat:tmux` helpers to start relay with an immediate startup heartbeat.
+- Relay now prints the active file log path and level on startup so you can tail logs without attaching.
+- Heartbeat CLI accepts `--session-id` to force resuming a specific Claude session; fallback heartbeats skip instead of creating a new session when no stored session exists.
+- Heartbeat session handling now supports `inbound.reply.session.heartbeatIdleMinutes` and does not refresh `updatedAt` on skipped heartbeats, so sessions still expire on idle.
+- Web inbound now resolves WhatsApp Linked IDs (`@lid`) using Baileys’ reverse mapping files, so new-format senders are no longer dropped.
+- `allowFrom: ["*"]` is honored for auto-replies; manual heartbeats require `--to` or `--all` when multiple sessions exist or the allowlist is wildcard-only.
+
+## 1.1.0 — 2025-11-26
+
+### Changes
+- Web auto-replies now resize/recompress media and honor `inbound.reply.mediaMaxMb` in `~/.warelay/warelay.json` (default 5 MB) to avoid provider/API limits.
+- Web provider now detects media kind (image/audio/video/document), logs the source path, and enforces provider caps: images ≤6 MB, audio/video ≤16 MB, documents ≤100 MB; images still target the configurable cap above with resize + JPEG recompress.
+- Sessions can now send the system prompt only once: set `inbound.reply.session.sendSystemOnce` (optional `sessionIntro` for the first turn) to avoid re-sending large prompts every message.
+- While commands run, typing indicators refresh every 30s by default (tune with `inbound.reply.typingIntervalSeconds`); helps keep WhatsApp “composing” visible during longer Claude runs.
+- Optional voice-note transcription: set `inbound.transcribeAudio.command` (e.g., OpenAI Whisper CLI) to turn inbound audio into text before templating/Claude; verbose logs surface when transcription runs. Prompts now include the original media path plus a `Transcript:` block so models see both.
+- Auto-reply command replies now return structured `{ payload, meta }`, respect `mediaMaxMb` for local media, log Claude metadata, and include the command `cwd` in timeout messages for easier debugging.
+- Added unit coverage for command helper edge cases (Claude flags, session args, media tokens, timeouts) and transcription download/command invocation.
+- Split the monolithic web provider into focused modules under `src/web/` plus a barrel; added logout command, no-fallback relay behavior, and web-only relay start helper.
+- Introduced structured reconnect/heartbeat logging (`web-reconnect`, `web-heartbeat`), bounded exponential backoff with CLI and config knobs, and a troubleshooting guide at `docs/refactor/web-relay-troubleshooting.md`.
+- Relay help now prints effective heartbeat/backoff settings when running in web mode for quick triage.
+
+## 1.0.4 — 2025-11-25
+
+### Changes
 - Auto-replies now send a WhatsApp fallback message when a command/Claude run hits the timeout, including up to 800 chars of partial stdout so the user still sees progress.
 - Added tests covering the new timeout fallback behavior and partial-output truncation.
 - Web relay auto-reconnects after Baileys/WebSocket drops (with log-out detection) and exposes close events for monitoring; added tests for close propagation and reconnect loop.
