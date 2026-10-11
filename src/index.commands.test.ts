@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockTwilio } from "../test/mocks/twilio.js";
 import { statusCommand } from "./commands/status.js";
-import { createDefaultDeps, defaultRuntime } from "./index.js";
+import { createDefaultDeps } from "./index.js";
 import * as providerWeb from "./provider-web.js";
+import { defaultRuntime } from "./runtime.js";
 
 vi.mock("twilio", () => {
 	const { factory } = createMockTwilio();
@@ -25,10 +26,9 @@ afterEach(() => {
 });
 
 describe("CLI commands", () => {
-	it("exposes login alias", () => {
+	it("exposes login command", () => {
 		const names = index.program.commands.map((c) => c.name());
 		expect(names).toContain("login");
-		expect(names).toContain("web:login");
 	});
 
 	it("send command routes to web provider", async () => {
@@ -62,7 +62,31 @@ describe("CLI commands", () => {
 		expect(wait).not.toHaveBeenCalled();
 	});
 
-	it("login alias calls web login", async () => {
+	it("send command supports dry-run and skips sending", async () => {
+		const twilio = (await import("twilio")).default;
+		const wait = vi.spyOn(index, "waitForFinalStatus").mockResolvedValue();
+		await index.program.parseAsync(
+			["send", "--to", "+1555", "--message", "hi", "--wait", "0", "--dry-run"],
+			{ from: "user" },
+		);
+		expect(twilio._client.messages.create).not.toHaveBeenCalled();
+		expect(wait).not.toHaveBeenCalled();
+	});
+
+	it("send command outputs JSON when requested", async () => {
+		const twilio = (await import("twilio")).default;
+		twilio._client.messages.create.mockResolvedValue({ sid: "SMJSON" });
+		const logSpy = vi.spyOn(defaultRuntime, "log");
+		await index.program.parseAsync(
+			["send", "--to", "+1555", "--message", "hi", "--wait", "0", "--json"],
+			{ from: "user" },
+		);
+		expect(logSpy).toHaveBeenCalledWith(
+			expect.stringContaining('"sid": "SMJSON"'),
+		);
+	});
+
+	it("login command calls web login", async () => {
 		const spy = vi.spyOn(providerWeb, "loginWeb").mockResolvedValue();
 		await index.program.parseAsync(["login"], { from: "user" });
 		expect(spy).toHaveBeenCalled();

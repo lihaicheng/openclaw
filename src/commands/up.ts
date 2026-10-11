@@ -1,8 +1,16 @@
-import type { CliDeps, RuntimeEnv } from "../index.js";
-import { waitForever as defaultWaitForever } from "../index.js";
+import type { CliDeps } from "../cli/deps.js";
+import { waitForever as defaultWaitForever } from "../cli/wait.js";
+import { retryAsync } from "../infra/retry.js";
+import type { RuntimeEnv } from "../runtime.js";
 
 export async function upCommand(
-	opts: { port: string; path: string; verbose?: boolean; yes?: boolean },
+	opts: {
+		port: string;
+		path: string;
+		verbose?: boolean;
+		yes?: boolean;
+		dryRun?: boolean;
+	},
 	deps: CliDeps,
 	runtime: RuntimeEnv,
 	waiter: typeof defaultWaitForever = defaultWaitForever,
@@ -14,18 +22,30 @@ export async function upCommand(
 
 	await deps.ensurePortAvailable(port);
 	const env = deps.readEnv(runtime);
+	if (opts.dryRun) {
+		runtime.log(`[dry-run] would enable funnel on port ${port}`);
+		runtime.log(`[dry-run] would start webhook at path ${opts.path}`);
+		runtime.log(`[dry-run] would update Twilio sender webhook`);
+		const publicUrl = `https://dry-run${opts.path}`;
+		return { server: undefined, publicUrl, senderSid: undefined, waiter };
+	}
 	await deps.ensureBinary("tailscale", undefined, runtime);
-	await deps.ensureFunnel(port, undefined, runtime);
+	await retryAsync(() => deps.ensureFunnel(port, undefined, runtime), 3, 500);
 	const host = await deps.getTailnetHostname();
 	const publicUrl = `https://${host}${opts.path}`;
 	runtime.log(`🌐 Public webhook URL (via Funnel): ${publicUrl}`);
 
-	const server = await deps.startWebhook(
-		port,
-		opts.path,
-		undefined,
-		Boolean(opts.verbose),
-		runtime,
+	const server = await retryAsync(
+		() =>
+			deps.startWebhook(
+				port,
+				opts.path,
+				undefined,
+				Boolean(opts.verbose),
+				runtime,
+			),
+		3,
+		300,
 	);
 
 	if (!deps.createClient) {
@@ -33,7 +53,7 @@ export async function upCommand(
 	}
 	const twilioClient = deps.createClient(env);
 	const senderSid = await deps.findWhatsappSenderSid(
-		twilioClient,
+		twilioClient as unknown as import("../twilio/types.js").TwilioSenderListClient,
 		env.whatsappFrom,
 		env.whatsappSenderSid,
 		runtime,

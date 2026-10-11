@@ -17,6 +17,7 @@ type TwilioFactoryMock = ReturnType<typeof createMockTwilio>["factory"];
 const twilioFactory = (await import("twilio")).default as TwilioFactoryMock;
 
 import * as index from "./index.js";
+import { splitMediaFromOutput } from "./media/parse.js";
 
 const envBackup = { ...process.env } as Record<string, string | undefined>;
 
@@ -86,8 +87,225 @@ describe("config and templating", () => {
 			{ onReplyStart },
 			cfg,
 		);
-		expect(result).toBe("Hello whatsapp:+1555 [pfx] hi");
+		expect(result?.text).toBe("Hello whatsapp:+1555 [pfx] hi");
 		expect(onReplyStart).toHaveBeenCalled();
+	});
+
+	it("getReplyFromConfig templating includes media fields", async () => {
+		const cfg = {
+			inbound: {
+				reply: {
+					mode: "command" as const,
+					command: ["echo", "{{Body}}"],
+				},
+			},
+		};
+		const result = await index.getReplyFromConfig(
+			{
+				Body: "",
+				From: "+1",
+				To: "+2",
+				MediaPath: "/tmp/a.jpg",
+				MediaType: "image/jpeg",
+				MediaUrl: "http://example.com/a.jpg",
+			},
+			undefined,
+			cfg,
+		);
+		expect(result?.text).toContain("/tmp/a.jpg");
+		expect(result?.text).toContain("image/jpeg");
+		expect(result?.text).toContain("http://example.com/a.jpg");
+	});
+
+	it("getReplyFromConfig extracts media URL from command stdout", async () => {
+		const runSpy = vi.spyOn(index, "runCommandWithTimeout").mockResolvedValue({
+			stdout: "hello\nMEDIA: https://example.com/img.jpg\n",
+			stderr: "",
+			code: 0,
+			signal: null,
+			killed: false,
+		});
+		const cfg = {
+			inbound: {
+				reply: {
+					mode: "command" as const,
+					command: ["echo", "{{Body}}"],
+				},
+			},
+		};
+		const result = await index.getReplyFromConfig(
+			{
+				Body: "hi",
+				From: "+1",
+				To: "+2",
+			},
+			undefined,
+			cfg,
+			runSpy,
+		);
+		expect(result?.text).toBe("hello");
+		expect(result?.mediaUrl).toBe("https://example.com/img.jpg");
+	});
+
+	it("extracts first MEDIA token even with trailing text", async () => {
+		const runSpy = vi.spyOn(index, "runCommandWithTimeout").mockResolvedValue({
+			stdout: "hello\nMEDIA:/tmp/pic.png extra words here\n",
+			stderr: "",
+			code: 0,
+			signal: null,
+			killed: false,
+		});
+		const cfg = {
+			inbound: {
+				reply: {
+					mode: "command" as const,
+					command: ["echo", "{{Body}}"],
+				},
+			},
+		};
+		const result = await index.getReplyFromConfig(
+			{ Body: "hi", From: "+1", To: "+2" },
+			undefined,
+			cfg,
+			runSpy,
+		);
+		expect(result?.mediaUrl).toBe("/tmp/pic.png");
+	});
+
+	it("extracts MEDIA token inline within a sentence", async () => {
+		const runSpy = vi.spyOn(index, "runCommandWithTimeout").mockResolvedValue({
+			stdout: "caption before MEDIA:/tmp/pic.png caption after",
+			stderr: "",
+			code: 0,
+			signal: null,
+			killed: false,
+		});
+		const cfg = {
+			inbound: {
+				reply: {
+					mode: "command" as const,
+					command: ["echo", "{{Body}}"],
+				},
+			},
+		};
+		const result = await index.getReplyFromConfig(
+			{ Body: "hi", From: "+1", To: "+2" },
+			undefined,
+			cfg,
+			runSpy,
+		);
+		expect(result?.mediaUrl).toBe("/tmp/pic.png");
+		expect(result?.text).toBe("caption before caption after");
+	});
+
+	it("captures MEDIA wrapped in backticks", async () => {
+		const runSpy = vi.spyOn(index, "runCommandWithTimeout").mockResolvedValue({
+			stdout: "MEDIA:`/tmp/pic.png` cool",
+			stderr: "",
+			code: 0,
+			signal: null,
+			killed: false,
+		});
+		const cfg = {
+			inbound: {
+				reply: {
+					mode: "command" as const,
+					command: ["echo", "{{Body}}"],
+				},
+			},
+		};
+		const result = await index.getReplyFromConfig(
+			{ Body: "hi", From: "+1", To: "+2" },
+			undefined,
+			cfg,
+			runSpy,
+		);
+		expect(result?.mediaUrl).toBe("/tmp/pic.png");
+	});
+
+	it("captures MEDIA token with trailing JSON characters", async () => {
+		const runSpy = vi.spyOn(index, "runCommandWithTimeout").mockResolvedValue({
+			stdout: 'MEDIA:/tmp/pic.png"} trailing',
+			stderr: "",
+			code: 0,
+			signal: null,
+			killed: false,
+		});
+		const cfg = {
+			inbound: {
+				reply: {
+					mode: "command" as const,
+					command: ["echo", "{{Body}}"],
+				},
+			},
+		};
+		const result = await index.getReplyFromConfig(
+			{ Body: "hi", From: "+1", To: "+2" },
+			undefined,
+			cfg,
+			runSpy,
+		);
+		expect(result?.mediaUrl).toBe("/tmp/pic.png");
+	});
+
+	it("ignores invalid MEDIA lines with whitespace", async () => {
+		const runSpy = vi.spyOn(index, "runCommandWithTimeout").mockResolvedValue({
+			stdout: "hello\nMEDIA: not a url with spaces\nrest\n",
+			stderr: "",
+			code: 0,
+			signal: null,
+			killed: false,
+		});
+		const cfg = {
+			inbound: {
+				reply: {
+					mode: "command" as const,
+					command: ["echo", "{{Body}}"],
+				},
+			},
+		};
+		const result = await index.getReplyFromConfig(
+			{ Body: "hi", From: "+1", To: "+2" },
+			undefined,
+			cfg,
+			runSpy,
+		);
+		expect(result?.text).toBe("hello\nrest");
+		expect(result?.mediaUrl).toBeUndefined();
+	});
+
+	it("injects fallback text when command returns nothing", async () => {
+		const runSpy = vi.spyOn(index, "runCommandWithTimeout").mockResolvedValue({
+			stdout: "",
+			stderr: "",
+			code: 0,
+			signal: null,
+			killed: false,
+		});
+		const cfg = {
+			inbound: {
+				reply: {
+					mode: "command" as const,
+					command: ["echo", "{{Body}}"],
+				},
+			},
+		};
+		const result = await index.getReplyFromConfig(
+			{ Body: "hi", From: "+1", To: "+2" },
+			undefined,
+			cfg,
+			runSpy,
+		);
+		expect(result?.text).toContain("command produced no output");
+		expect(result?.mediaUrl).toBeUndefined();
+	});
+
+	it("splitMediaFromOutput strips media token and preserves text", () => {
+		const { text, mediaUrl } = splitMediaFromOutput(
+			"line1\nMEDIA:https://x/y.png\nline2",
+		);
+		expect(mediaUrl).toBe("https://x/y.png");
+		expect(text).toBe("line1\nline2");
 	});
 
 	it("getReplyFromConfig runs command and manages session store", async () => {
@@ -123,7 +341,7 @@ describe("config and templating", () => {
 			cfg,
 			runSpy,
 		);
-		expect(first).toBe("cmd output");
+		expect(first?.text).toBe("cmd output");
 		const argvFirst = runSpy.mock.calls[0][0];
 		expect(argvFirst).toEqual([
 			"echo",
@@ -139,9 +357,153 @@ describe("config and templating", () => {
 			cfg,
 			runSpy,
 		);
-		expect(second).toBe("cmd output");
+		expect(second?.text).toBe("cmd output");
 		const argvSecond = runSpy.mock.calls[1][0];
 		expect(argvSecond[2]).toBe("--resume");
+	});
+
+	it("injects Claude output format + print flag when configured", async () => {
+		const runSpy = vi.spyOn(index, "runCommandWithTimeout").mockResolvedValue({
+			stdout: "ok",
+			stderr: "",
+			code: 0,
+			signal: null,
+			killed: false,
+		});
+		const cfg = {
+			inbound: {
+				reply: {
+					mode: "command" as const,
+					command: ["claude", "{{Body}}"],
+					claudeOutputFormat: "text" as const,
+				},
+			},
+		};
+
+		await index.getReplyFromConfig(
+			{ Body: "hi", From: "+1555", To: "+1666" },
+			undefined,
+			cfg,
+			runSpy,
+		);
+
+		const argv = runSpy.mock.calls[0][0];
+		expect(argv[0]).toBe("claude");
+		expect(argv.at(-1)).toContain("You are Clawd (Claude)");
+		expect(argv.at(-1)).toContain("/Users/steipete/clawd");
+		expect(argv.at(-1)).toMatch(/hi$/);
+		// The helper should auto-add print and output format flags without disturbing the prompt position.
+		expect(argv.includes("-p") || argv.includes("--print")).toBe(true);
+		const outputIdx = argv.findIndex(
+			(part) =>
+				part === "--output-format" || part.startsWith("--output-format="),
+		);
+		expect(outputIdx).toBeGreaterThan(-1);
+		expect(argv[outputIdx + 1]).toBe("text");
+	});
+
+	it("parses Claude JSON output and returns text content", async () => {
+		const runSpy = vi.spyOn(index, "runCommandWithTimeout").mockResolvedValue({
+			stdout: '{"text":"hello world"}\n',
+			stderr: "",
+			code: 0,
+			signal: null,
+			killed: false,
+		});
+		const cfg = {
+			inbound: {
+				reply: {
+					mode: "command" as const,
+					command: ["claude", "{{Body}}"],
+					claudeOutputFormat: "json" as const,
+				},
+			},
+		};
+
+		const result = await index.getReplyFromConfig(
+			{ Body: "hi", From: "+1", To: "+2" },
+			undefined,
+			cfg,
+			runSpy,
+		);
+
+		expect(result?.text).toBe("hello world");
+	});
+
+	it("parses Claude JSON output even without explicit claudeOutputFormat when using claude bin", async () => {
+		const runSpy = vi.spyOn(index, "runCommandWithTimeout").mockResolvedValue({
+			stdout: '{"result":"Sure! What\'s up?"}\n',
+			stderr: "",
+			code: 0,
+			signal: null,
+			killed: false,
+		});
+		const cfg = {
+			inbound: {
+				reply: {
+					mode: "command" as const,
+					command: ["claude", "{{Body}}"],
+					// No claudeOutputFormat set on purpose
+				},
+			},
+		};
+
+		const result = await index.getReplyFromConfig(
+			{ Body: "hi", From: "+1", To: "+2" },
+			undefined,
+			cfg,
+			runSpy,
+		);
+
+		expect(result?.text).toBe("Sure! What's up?");
+		const argv = runSpy.mock.calls[0][0];
+		expect(argv.at(-1)).toContain("You are Clawd (Claude)");
+		expect(argv.at(-1)).toContain("/Users/steipete/clawd");
+	});
+
+	it("serializes command auto-replies via the queue", async () => {
+		let active = 0;
+		let maxActive = 0;
+		const runSpy = vi.fn(async () => {
+			active += 1;
+			maxActive = Math.max(maxActive, active);
+			await new Promise((resolve) => setTimeout(resolve, 25));
+			active -= 1;
+			return {
+				stdout: "ok",
+				stderr: "",
+				code: 0,
+				signal: null,
+				killed: false,
+			};
+		});
+
+		const cfg = {
+			inbound: {
+				reply: {
+					mode: "command" as const,
+					command: ["echo", "{{Body}}"],
+				},
+			},
+		};
+
+		await Promise.all([
+			index.getReplyFromConfig(
+				{ Body: "first", From: "+1", To: "+2" },
+				undefined,
+				cfg,
+				runSpy,
+			),
+			index.getReplyFromConfig(
+				{ Body: "second", From: "+3", To: "+4" },
+				undefined,
+				cfg,
+				runSpy,
+			),
+		]);
+
+		expect(runSpy).toHaveBeenCalledTimes(2);
+		expect(maxActive).toBe(1);
 	});
 });
 
@@ -173,10 +535,10 @@ describe("twilio interactions", () => {
 
 	it("sendTypingIndicator skips missing messageSid and sends when present", async () => {
 		const client = twilioFactory._createClient();
-		await index.sendTypingIndicator(client, undefined);
+		await index.sendTypingIndicator(client, index.defaultRuntime, undefined);
 		expect(client.request).not.toHaveBeenCalled();
 
-		await index.sendTypingIndicator(client, "SM123");
+		await index.sendTypingIndicator(client, index.defaultRuntime, "SM123");
 		expect(client.request).toHaveBeenCalledWith(
 			expect.objectContaining({ method: "post" }),
 		);
@@ -241,7 +603,7 @@ describe("webhook and messaging", () => {
 		const client = twilioFactory._createClient();
 		client.messages.create.mockResolvedValue({});
 		twilioFactory.mockReturnValue(client);
-		vi.spyOn(index, "getReplyFromConfig").mockResolvedValue("Auto");
+		vi.spyOn(index, "getReplyFromConfig").mockResolvedValue({ text: "Auto" });
 
 		const server = await index.startWebhook(0, "/hook", undefined, false);
 		const address = server.address() as net.AddressInfo;
@@ -252,6 +614,43 @@ describe("webhook and messaging", () => {
 			body: "From=whatsapp%3A%2B1555&To=whatsapp%3A%2B1666&Body=Hello&MessageSid=SM2",
 		});
 		expect(res.status).toBe(200);
+		await new Promise((resolve) => server.close(resolve));
+	});
+
+	it("hosts local media before replying via webhook", async () => {
+		const client = twilioFactory._createClient();
+		client.messages.create.mockResolvedValue({});
+		twilioFactory.mockReturnValue(client);
+		const replies = await import("./auto-reply/reply.js");
+		const hostModule = await import("./media/host.js");
+		const hostSpy = vi
+			.spyOn(hostModule, "ensureMediaHosted")
+			.mockResolvedValue({
+				url: "https://ts.net/media/abc",
+				id: "abc",
+				size: 123,
+			});
+		vi.spyOn(replies, "getReplyFromConfig").mockResolvedValue({
+			text: "Auto",
+			mediaUrl: "/tmp/pic.png",
+		});
+
+		const server = await index.startWebhook(0, "/hook", undefined, false);
+		const address = server.address() as net.AddressInfo;
+		const url = `http://127.0.0.1:${address.port}/hook`;
+		await fetch(url, {
+			method: "POST",
+			headers: { "content-type": "application/x-www-form-urlencoded" },
+			body: "From=whatsapp%3A%2B1555&To=whatsapp%3A%2B1666&Body=Hello&MessageSid=SM2",
+		});
+
+		expect(hostSpy).toHaveBeenCalledWith("/tmp/pic.png");
+		expect(client.messages.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				mediaUrl: ["https://ts.net/media/abc"],
+			}),
+		);
+		hostSpy.mockRestore();
 		await new Promise((resolve) => server.close(resolve));
 	});
 
@@ -530,6 +929,7 @@ describe("monitoring", () => {
 
 	it("monitorWebProvider triggers replies and stops when asked", async () => {
 		const replySpy = vi.fn();
+		const sendMediaSpy = vi.fn();
 		const listenerFactory = vi.fn(
 			async (
 				opts: Parameters<typeof index.monitorWebProvider>[1] extends undefined
@@ -543,11 +943,12 @@ describe("monitoring", () => {
 					id: "id1",
 					sendComposing: vi.fn(),
 					reply: replySpy,
+					sendMedia: sendMediaSpy,
 				});
 				return { close: vi.fn() };
 			},
 		);
-		const resolver = vi.fn().mockResolvedValue("auto");
+		const resolver = vi.fn().mockResolvedValue({ text: "auto" });
 		await index.monitorWebProvider(false, listenerFactory, false, resolver);
 		expect(replySpy).toHaveBeenCalledWith("auto");
 	});
