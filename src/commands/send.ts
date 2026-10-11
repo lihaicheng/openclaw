@@ -1,5 +1,7 @@
+import type { CliDeps } from "../cli/deps.js";
 import { info } from "../globals.js";
-import type { CliDeps, Provider, RuntimeEnv } from "../index.js";
+import type { RuntimeEnv } from "../runtime.js";
+import type { Provider } from "../utils.js";
 
 export async function sendCommand(
 	opts: {
@@ -8,6 +10,10 @@ export async function sendCommand(
 		wait: string;
 		poll: string;
 		provider: Provider;
+		json?: boolean;
+		dryRun?: boolean;
+		media?: string;
+		serveMedia?: boolean;
 	},
 	deps: CliDeps,
 	runtime: RuntimeEnv,
@@ -24,14 +30,76 @@ export async function sendCommand(
 	}
 
 	if (opts.provider === "web") {
+		if (opts.dryRun) {
+			runtime.log(
+				`[dry-run] would send via web -> ${opts.to}: ${opts.message}${opts.media ? ` (media ${opts.media})` : ""}`,
+			);
+			return;
+		}
 		if (waitSeconds !== 0) {
 			runtime.log(info("Wait/poll are Twilio-only; ignored for provider=web."));
 		}
-		await deps.sendMessageWeb(opts.to, opts.message, { verbose: false });
+		const res = await deps
+			.sendMessageWeb(opts.to, opts.message, {
+				verbose: false,
+				mediaUrl: opts.media,
+			})
+			.catch((err) => {
+				runtime.error(`❌ Web send failed: ${String(err)}`);
+				throw err;
+			});
+		if (opts.json) {
+			runtime.log(
+				JSON.stringify(
+					{
+						provider: "web",
+						to: opts.to,
+						messageId: res.messageId,
+						mediaUrl: opts.media ?? null,
+					},
+					null,
+					2,
+				),
+			);
+		}
 		return;
 	}
 
-	const result = await deps.sendMessage(opts.to, opts.message, runtime);
+	if (opts.dryRun) {
+		runtime.log(
+			`[dry-run] would send via twilio -> ${opts.to}: ${opts.message}${opts.media ? ` (media ${opts.media})` : ""}`,
+		);
+		return;
+	}
+
+	let mediaUrl: string | undefined;
+	if (opts.media) {
+		mediaUrl = await deps.resolveTwilioMediaUrl(opts.media, {
+			serveMedia: Boolean(opts.serveMedia),
+			runtime,
+		});
+	}
+
+	const result = await deps.sendMessage(
+		opts.to,
+		opts.message,
+		{ mediaUrl },
+		runtime,
+	);
+	if (opts.json) {
+		runtime.log(
+			JSON.stringify(
+				{
+					provider: "twilio",
+					to: opts.to,
+					sid: result?.sid ?? null,
+					mediaUrl: mediaUrl ?? null,
+				},
+				null,
+				2,
+			),
+		);
+	}
 	if (!result) return;
 	if (waitSeconds === 0) return;
 	await deps.waitForFinalStatus(
